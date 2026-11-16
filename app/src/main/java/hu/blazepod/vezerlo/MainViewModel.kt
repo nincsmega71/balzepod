@@ -123,10 +123,40 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var identifyIndex by mutableIntStateOf(0)
         private set
 
+    // ---- Diagnosztika ----
+    var diagTitle by mutableStateOf<String?>(null)
+        private set
+    var diagText by mutableStateOf("")
+        private set
+
     private var job: Job? = null
     private var connectJob: Job? = null
     private val taps = Channel<Pair<Pod, BlazeProtocol.TapEvent>>(Channel.UNLIMITED)
     private val tone = try { ToneGenerator(AudioManager.STREAM_MUSIC, 90) } catch (_: Exception) { null }
+
+    init {
+        // Akku és jelerősség frissítése 30 mp-enként (edzés közben nem)
+        viewModelScope.launch {
+            while (true) {
+                delay(30_000)
+                if (mode != Mode.DRILL && !busy) readyPods().forEach { it.refreshInfo() }
+            }
+        }
+    }
+
+    fun refreshAll() {
+        if (busy) return
+        viewModelScope.launch { readyPods().forEach { it.refreshInfo() } }
+    }
+
+    fun showDiagnostics(pod: Pod) {
+        if (mode == Mode.DRILL) return
+        diagTitle = "#${pod.index} ${pod.name}"
+        diagText = "Kiolvasás…"
+        viewModelScope.launch { diagText = pod.dumpGatt() }
+    }
+
+    fun closeDiagnostics() { diagTitle = null }
 
     fun btEnabled(): Boolean = adapter?.isEnabled == true
     fun readyPods(): List<Pod> = pods.filter { it.state == Pod.State.READY }
@@ -207,6 +237,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         okCount++
                         renumber()
                         flash(pod, GREEN, 2)
+                        pod.refreshInfo()
                     } else {
                         pods.remove(pod)
                         renumber()

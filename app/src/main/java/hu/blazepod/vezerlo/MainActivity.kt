@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -139,32 +140,113 @@ fun PodsTab(vm: MainViewModel, onScan: () -> Unit) {
     if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
     Text(vm.status, style = MaterialTheme.typography.bodyMedium)
 
-    SectionCard("Csatlakoztatott bólyák (${vm.readyPods().size})") {
-        if (vm.pods.isEmpty()) Text("Még nincs csatlakoztatott bólya.", style = MaterialTheme.typography.bodySmall)
-        vm.pods.forEach { p ->
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                NumberBadge(p.index, if (p.state == Pod.State.READY) Color(0xFF2EA8FF) else Color.Gray)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "Csatlakoztatott bólyák (${vm.readyPods().size})",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = { vm.refreshAll() }, enabled = vm.readyPods().isNotEmpty() && !vm.busy) {
+            Text("Frissítés")
+        }
+    }
+    if (vm.pods.isEmpty()) Text("Még nincs csatlakoztatott bólya.", style = MaterialTheme.typography.bodySmall)
+    vm.pods.forEach { p -> PodCard(vm, p) }
+
+    vm.diagTitle?.let { title ->
+        AlertDialog(
+            onDismissRequest = { vm.closeDiagnostics() },
+            confirmButton = { TextButton(onClick = { vm.closeDiagnostics() }) { Text("Bezár") } },
+            title = { Text("Diagnosztika – $title") },
+            text = {
+                Text(
+                    vm.diagText,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())
+                )
+            }
+        )
+    }
+}
+
+@Composable
+fun PodCard(vm: MainViewModel, p: Pod) {
+    val (stateText, stateColor) = when (p.state) {
+        Pod.State.READY -> "Csatlakozva" to Color(0xFF66BB6A)
+        Pod.State.CONNECTING -> "Csatlakozás…" to Color(0xFFFFCA28)
+        Pod.State.FAILED -> "Sikertelen" to Color(0xFFEF5350)
+        Pod.State.DISCONNECTED -> "Megszakadt" to Color(0xFFEF5350)
+    }
+    val lit = vm.mode == Mode.DRILL && vm.litPodIndex == p.index
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                NumberBadge(p.index, if (p.state == Pod.State.READY) Color(0xFF2EA8FF) else Color.Gray, 48)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(p.name, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        when (p.state) {
-                            Pod.State.READY -> "Kész"
-                            Pod.State.CONNECTING -> "Csatlakozás…"
-                            Pod.State.FAILED -> "Sikertelen"
-                            Pod.State.DISCONNECTED -> "Megszakadt – nyomd meg a Keresést"
-                        },
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    Text(p.name, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(stateColor))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            stateText + if (lit) " • világít" else "",
+                            color = stateColor, style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
+                BatteryView(p.battery)
+            }
+            Text(
+                buildString {
+                    append("MAC: ").append(p.address)
+                    p.serial?.let { append("\nSorozatszám: ").append(it) }
+                    p.model?.let { append("\nModell: ").append(it) }
+                    p.firmware?.let { append("   FW: ").append(it) }
+                    p.rssi?.let { append("\nJelerősség: ").append(it).append(" dBm") }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFFB0B0B0)
+            )
+            Row {
                 TextButton(
                     onClick = { vm.identifyOne(p) },
                     enabled = p.state == Pod.State.READY && vm.mode == Mode.IDLE
                 ) { Text("Villant") }
+                TextButton(
+                    onClick = { vm.showDiagnostics(p) },
+                    enabled = p.state == Pod.State.READY && vm.mode != Mode.DRILL
+                ) { Text("Diagnosztika") }
             }
+        }
+    }
+}
+
+@Composable
+fun BatteryView(level: Int?) {
+    Column(horizontalAlignment = Alignment.End) {
+        if (level == null) {
+            Text("Akku: –", style = MaterialTheme.typography.bodySmall)
+        } else {
+            val c = when {
+                level >= 50 -> Color(0xFF66BB6A)
+                level >= 20 -> Color(0xFFFFCA28)
+                else -> Color(0xFFEF5350)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(width = 38.dp, height = 18.dp)
+                        .border(2.dp, c, RoundedCornerShape(3.dp)).padding(3.dp)
+                ) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(level / 100f).background(c))
+                }
+                Box(Modifier.size(width = 3.dp, height = 8.dp).background(c))
+            }
+            Text("$level %", fontWeight = FontWeight.Bold, color = c)
+            Text(
+                "≈ %.2f V".format(BlazeProtocol.estimateVoltage(level)),
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }
@@ -389,9 +471,9 @@ fun ColorPicker(vm: MainViewModel) {
 }
 
 @Composable
-fun NumberBadge(n: Int, color: Color) {
-    Box(Modifier.size(36.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
-        Text("$n", color = Color.White, fontWeight = FontWeight.Bold)
+fun NumberBadge(n: Int, color: Color, sizeDp: Int = 36) {
+    Box(Modifier.size(sizeDp.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
+        Text("$n", color = Color.White, fontWeight = FontWeight.Bold, fontSize = (sizeDp / 2).sp)
     }
 }
 

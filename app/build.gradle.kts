@@ -16,10 +16,19 @@ android {
         versionName = "1.0"
     }
 
+    // Rögzített aláíró kulcs, így az új verziók felülírhatják a régit
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Gyors telepítéshez a debug kulccsal írjuk alá
             signingConfig = signingConfigs.getByName("debug")
         }
     }
